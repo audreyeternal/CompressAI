@@ -44,6 +44,22 @@ from PIL import Image
 from torch import Tensor
 from torch.utils.model_zoo import tqdm
 from torchvision.transforms import ToPILImage, ToTensor
+from monai.inferers import sliding_window_inference
+from monai.transforms import (
+    RandSpatialCropSamples,
+    LoadImage,
+    SaveImage,
+    Compose,
+    AddChannel,
+    RepeatChannel,
+    ToTensor,
+    Transform,
+    CastToType,
+    EnsureType,
+    ScaleIntensityRangePercentiles,
+)
+from aicsimageio import AICSImage
+from aicsimageio.writers import  OmeTiffWriter
 
 import compressai
 
@@ -79,6 +95,14 @@ class CodecInfo(NamedTuple):
     net: Dict
     device: str
 
+class Normalize(Transform):
+    def __init__(self):
+        super().__init__()
+
+    def __call__(self, img):
+        # Rescale unint16 values to [0,1]
+        result = img / 65535
+        return result
 
 def BoolConvert(a):
     b = [False, True]
@@ -109,8 +133,16 @@ def img2torch(img: Image.Image) -> torch.Tensor:
     return ToTensor()(img).unsqueeze(0)
 
 
-def torch2img(x: torch.Tensor) -> Image.Image:
-    return ToPILImage()(x.clamp_(0, 1).squeeze())
+# def torch2img(x: torch.Tensor) -> Image.Image:
+#     return ToPILImage()(x.clamp_(0, 1).squeeze())
+# def torch2img(x: torch.Tensor):
+#     return (x.clamp_(0, 1).squeeze())
+
+
+def torch2img(x: torch.Tensor): 
+    # Convert  tensor to numpy array and rescale to uint16
+    np_array = x.clamp_(0, 1).squeeze().cpu().numpy()
+    return (np_array * (2**16 - 1)).astype(np.uint16)
 
 
 def write_uints(fd, values, fmt=">{:d}I"):
@@ -262,14 +294,24 @@ def encode_image(input, codec: CodecInfo, output):
             raise NotImplementedError(f"Unsupported video format: {org_seq.format}")
         x = convert_yuv420_rgb(org_seq[0], codec.device, max_val)
     else:
-        img = load_image(input)
-        x = img2torch(img).to(codec.device)
+        transform = Compose([LoadImage(image_only=True),AddChannel(),RepeatChannel(repeats = 3),Normalize()])
+        img = transform(input).unsqueeze(0)
+        x = img.to(codec.device)
         bitdepth = 8
 
     h, w = x.size(2), x.size(3)
     p = 64  # maximum 6 strides of 2
     x = pad(x, p)
-
+    # with torch.no_grad():
+    #     out = sliding_window_inference(
+    #         inputs = x,
+    #         predictor = codec.net.compress,
+    #         device = torch.device("cpu"),
+    #         roi_size = [256,256],
+    #         sw_batch_size = 4,
+    #         overlap = 0.2,
+    #         mode = "gaussian"
+    #     )
     with torch.no_grad():
         out = codec.net.compress(x)
 
@@ -396,14 +438,19 @@ def decode_image(f, codec: CodecInfo, output):
     x_hat = crop(out["x_hat"], codec.original_size)
 
     img = torch2img(x_hat)
-
+    # save_img = SaveImage(output_dir = './',
+    #                      output_ext = '.tiff',
+    #                      output_dtype = 'uint16',
+    #                      writer = "monai.data.ITKWriter"
+    #                      )
     if output is not None:
         if Path(output).suffix == ".yuv":
             rec = convert_rgb_yuv420(x_hat)
             with Path(output).open("wb") as fout:
                 write_frame(fout, rec, codec.original_bitdepth)
         else:
-            img.save(output)
+            # save_img(img)
+            OmeTiffWriter.save(img[0].transpose(1,0), output, dim_order="YX")
 
     return {"img": img}
 

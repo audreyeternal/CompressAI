@@ -29,11 +29,9 @@
 
 from pathlib import Path
 
-from PIL import Image
-from torch.utils.data import Dataset
+from monai.data import DataLoader, Dataset
 
 from compressai.registry import register_dataset
-
 
 @register_dataset("ImageFolder")
 class ImageFolder(Dataset):
@@ -44,11 +42,11 @@ class ImageFolder(Dataset):
 
         - rootdir/
             - train/
-                - img000.png
-                - img001.png
+                - img000.tiff
+                - img001.tiff
             - test/
-                - img000.png
-                - img001.png
+                - img000.tiff
+                - img001.tiff
 
     Args:
         root (string): root directory of the dataset
@@ -75,9 +73,8 @@ class ImageFolder(Dataset):
         Returns:
             img: `PIL.Image.Image` or transformed `PIL.Image.Image`.
         """
-        img = Image.open(self.samples[index]).convert("RGB")
-        if self.transform:
-            return self.transform(img)
+        img_path = self.samples[index]
+        img = self.transform(img_path)
         return img
 
     def __len__(self):

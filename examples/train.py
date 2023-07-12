@@ -31,20 +31,53 @@ import argparse
 import random
 import shutil
 import sys
-
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from torch.utils.data import DataLoader
-from torchvision import transforms
+from monai.data import DataLoader, Dataset
+
+from monai.transforms import (
+    RandSpatialCropSamples,
+    LoadImage,
+    Compose,
+    AddChannel,
+    RepeatChannel,
+    ToTensor,
+    Transform,
+    CastToType,
+    EnsureType,
+    ScaleIntensityRangePercentiles,
+)
+from tqdm.contrib import tenumerate
+from aicsimageio import AICSImage
 
 from compressai.datasets import ImageFolder
 from compressai.losses import RateDistortionLoss
 from compressai.optimizers import net_aux_optimizer
 from compressai.zoo import image_models
 
+class LoadTiff(Transform):
+    def __init__(self):
+        super().__init__()
 
+    def __call__(self, data):
+        print(data)
+        x = AICSImage(data)
+        img = x.get_image_data("YX", S=0, T=0, C=0)
+        img = img.astype(np.float32)
+        return img
+
+class Normalize(Transform):
+    def __init__(self):
+        super().__init__()
+
+    def __call__(self, img):
+        # Rescale unint16 values to [0,1]
+        result = img / 65535
+        return result
+        
 class AverageMeter:
     """Compute running average."""
 
@@ -210,13 +243,6 @@ def parse_args(argv):
         default=1e-3,
         help="Auxiliary loss learning rate (default: %(default)s)",
     )
-    parser.add_argument(
-        "--patch-size",
-        type=int,
-        nargs=2,
-        default=(256, 256),
-        help="Size of the patches to be cropped (default: %(default)s)",
-    )
     parser.add_argument("--cuda", action="store_true", help="Use cuda")
     parser.add_argument(
         "--save", action="store_true", default=True, help="Save model to disk"
@@ -240,15 +266,15 @@ def main(argv):
         torch.manual_seed(args.seed)
         random.seed(args.seed)
 
-    train_transforms = transforms.Compose(
-        [transforms.RandomCrop(args.patch_size), transforms.ToTensor()]
+    train_transforms = Compose(
+        [LoadImage(image_only=True),AddChannel(),RepeatChannel(repeats = 3),RandSpatialCropSamples(roi_size = (256,256), num_samples = 1, random_size = False),Normalize()]
     )
 
-    test_transforms = transforms.Compose(
-        [transforms.CenterCrop(args.patch_size), transforms.ToTensor()]
+    test_transforms = Compose(
+        [LoadImage(image_only=True),AddChannel(),RepeatChannel(repeats = 3),RandSpatialCropSamples(roi_size = (256,256), num_samples = 1, random_size = False),Normalize()]
     )
 
-    train_dataset = ImageFolder(args.dataset, split="train", transform=train_transforms)
+    train_dataset = ImageFolder(args.dataset, split="toy", transform=train_transforms)
     test_dataset = ImageFolder(args.dataset, split="test", transform=test_transforms)
 
     device = "cuda" if args.cuda and torch.cuda.is_available() else "cpu"
