@@ -72,6 +72,7 @@ from compressai.transforms.functional import (
     yuv_444_to_420,
 )
 from compressai.zoo import image_models, models
+from compressai.zoo.pretrained import load_pretrained
 
 torch.backends.cudnn.deterministic = True
 
@@ -396,8 +397,8 @@ def encode_video(input, codec: CodecInfo, output):
 
     return {"bpp": bpp, "avg_frm_enc_time": np.mean(avg_frame_enc_time)}
 
-
-def _encode(input, num_of_frames, model, metric, quality, coder, device, output):
+    
+def _encode(input, num_of_frames, model, metric, quality, coder, device, output, checkpoint):
     encode_func = {
         CodecType.IMAGE_CODEC: encode_image,
         CodecType.VIDEO_CODEC: encode_video,
@@ -408,7 +409,16 @@ def _encode(input, num_of_frames, model, metric, quality, coder, device, output)
 
     start = time.time()
     model_info = models[model]
-    net = model_info(quality=quality, metric=metric, pretrained=True).to(device).eval()
+    if checkpoint:
+        try:
+            state_dict = torch.load(checkpoint)['state_dict']
+            state_dict = load_pretrained(state_dict)
+            net = model_info(quality=quality, metric=metric, pretrained=False).from_state_dict(state_dict).to(device).eval()
+        except:
+            print('the path or the config is wrong!')
+            pass
+    else:
+        net = model_info(quality=quality, metric=metric, pretrained=True).to(device).eval()
     codec_type = (
         CodecType.IMAGE_CODEC if model in image_models else CodecType.VIDEO_CODEC
     )
@@ -553,6 +563,12 @@ def show_image(img: Image.Image):
 def encode(argv):
     parser = argparse.ArgumentParser(description="Encode image/video to bit-stream")
     parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default = None,
+        help="path to checkpoint. If not specified, will load the pretrained model on RGB.",
+    )
+    parser.add_argument(
         "input",
         type=str,
         help="Input path, the first frame will be encoded with a NN image codec if the input is a raw yuv sequence",
@@ -608,6 +624,7 @@ def encode(argv):
         args.coder,
         device,
         args.output,
+        args.checkpoint
     )
 
 

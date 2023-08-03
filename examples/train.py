@@ -35,6 +35,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from pathlib import Path
 
 from monai.data import DataLoader, Dataset
 
@@ -57,6 +58,9 @@ from compressai.datasets import ImageFolder
 from compressai.losses import RateDistortionLoss
 from compressai.optimizers import net_aux_optimizer
 from compressai.zoo import image_models
+
+from torch.utils.tensorboard import SummaryWriter
+writer = SummaryWriter()
 
 class LoadTiff(Transform):
     def __init__(self):
@@ -120,6 +124,7 @@ def train_one_epoch(
 ):
     model.train()
     device = next(model.parameters()).device
+    metric = 'mse' if str(criterion.metric) == 'MSELoss()' else 'ms_ssim' 
 
     for i, d in enumerate(train_dataloader):
         d = d.to(device)
@@ -139,6 +144,12 @@ def train_one_epoch(
         aux_loss.backward()
         aux_optimizer.step()
 
+        # Write losses to TensorBoard
+        writer.add_scalar(f'Loss/{metric}_loss', out_criterion[f"{metric}_loss"].item(), global_step=epoch)
+        writer.add_scalar('Loss/bpp_loss', out_criterion["bpp_loss"].item(), global_step=epoch)
+        writer.add_scalar('Loss/total_loss', out_criterion["loss"].item(), global_step=epoch)
+        writer.add_scalar('Loss/aux_loss', aux_loss.item(), global_step=epoch)
+        
         if i % 10 == 0:
             print(
                 f"Train epoch {epoch}: ["
@@ -181,12 +192,13 @@ def test_epoch(epoch, test_dataloader, model, criterion):
 
     return loss.avg
 
-
 def save_checkpoint(state, is_best, filename="checkpoint.pth.tar"):
+    if not isinstance(filename,Path):
+        filename = Path(filename)
     torch.save(state, filename)
     if is_best:
-        shutil.copyfile(filename, "checkpoint_best_loss.pth.tar")
-
+        best_filename = filename.parent / 'best.pth.tar'
+        shutil.copyfile(filename, best_filename)
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(description="Example training script.")
@@ -196,6 +208,19 @@ def parse_args(argv):
         default="bmshj2018-factorized",
         choices=image_models.keys(),
         help="Model architecture (default: %(default)s)",
+    )
+    parser.add_argument(
+        "-q",
+        "--quality",
+        default=3,
+        type=int,
+        help="Model quality (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--metric",
+        default='mse',
+        choices=['mse','ms-ssim'],
+        help="Model metric (default: %(default)s)",
     )
     parser.add_argument(
         "-d", "--dataset", type=str, required=True, help="Training dataset"
@@ -245,7 +270,9 @@ def parse_args(argv):
     )
     parser.add_argument("--cuda", action="store_true", help="Use cuda")
     parser.add_argument(
-        "--save", action="store_true", default=True, help="Save model to disk"
+        "--save_path",
+        type=str,
+        default="model_checkpoint.pth.tar", help="Save model to disk"
     )
     parser.add_argument("--seed", type=int, help="Set random seed for reproducibility")
     parser.add_argument(
@@ -255,6 +282,8 @@ def parse_args(argv):
         help="gradient clipping max norm (default: %(default)s",
     )
     parser.add_argument("--checkpoint", type=str, help="Path to a checkpoint")
+    parser.add_argument("--pretrained", default=False, help="Use pretrained model")
+    
     args = parser.parse_args(argv)
     return args
 
@@ -271,7 +300,7 @@ def main(argv):
     )
 
     test_transforms = Compose(
-        [LoadImage(image_only=True),AddChannel(),RepeatChannel(repeats = 3),RandSpatialCropSamples(roi_size = (256,256), num_samples = 1, random_size = False),Normalize()]
+        [LoadImage(image_only=True),AddChannel(),RepeatChannel(repeats = 3),RandSpatialCropSamples(roi_size = (256,256), num_samples = 1, random_size = False, random_center = False), Normalize()]
     )
 
     train_dataset = ImageFolder(args.dataset, split="toy", transform=train_transforms)
@@ -295,7 +324,7 @@ def main(argv):
         pin_memory=(device == "cuda"),
     )
 
-    net = image_models[args.model](quality=3)
+    net = image_models[args.model](quality=args.quality, pretrained=args.pretrained)
     net = net.to(device)
 
     if args.cuda and torch.cuda.device_count() > 1:
@@ -333,19 +362,20 @@ def main(argv):
         is_best = loss < best_loss
         best_loss = min(loss, best_loss)
 
-        if args.save:
-            save_checkpoint(
-                {
-                    "epoch": epoch,
-                    "state_dict": net.state_dict(),
-                    "loss": loss,
-                    "optimizer": optimizer.state_dict(),
-                    "aux_optimizer": aux_optimizer.state_dict(),
-                    "lr_scheduler": lr_scheduler.state_dict(),
-                },
-                is_best,
-            )
-
+        save_checkpoint(
+            {   "quality": args.quality,
+                "metric": args.metric,
+                "model": args.model,
+                "epoch": epoch,
+                "state_dict": net.state_dict(),
+                "loss": loss,
+                "optimizer": optimizer.state_dict(),
+                "aux_optimizer": aux_optimizer.state_dict(),
+                "lr_scheduler": lr_scheduler.state_dict(),
+            },
+            is_best,
+            filename = args.save_path
+        )
 
 if __name__ == "__main__":
     main(sys.argv[1:])

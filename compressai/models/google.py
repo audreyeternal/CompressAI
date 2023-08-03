@@ -104,7 +104,7 @@ class FactorizedPrior(CompressionModel):
         self.entropy_bottleneck = EntropyBottleneck(M)
 
         self.g_a = nn.Sequential(
-            conv(3, N),
+            conv(1, N),
             GDN(N),
             conv(N, N),
             GDN(N),
@@ -120,7 +120,7 @@ class FactorizedPrior(CompressionModel):
             GDN(N, inverse=True),
             deconv(N, N),
             GDN(N, inverse=True),
-            deconv(N, 3),
+            deconv(N, 1),
         )
 
         self.N = N
