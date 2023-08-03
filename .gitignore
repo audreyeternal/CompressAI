@@ -8,7 +8,7 @@ compressai/version.py
 tags
 venv*/
 venv/
-
+**/events.*
 # Created by gitignore.io
 ### Python ###
 # Byte-compiled / optimized / DLL files
