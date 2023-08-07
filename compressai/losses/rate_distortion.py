@@ -53,10 +53,15 @@ class RateDistortionLoss(nn.Module):
         self.return_type = return_type
 
     def forward(self, output, target):
-        N, _, H, W = target.size()
+        if len(target.size()) == 4: #2d
+            N, _, H, W = target.size()
+            num_pixels = N * H * W
+        elif len(target.size()) == 5: #3d
+            N, _, Z, H, W = target.size()
+            num_pixels = N * H * W * Z
+        else:
+            raise ValueError("target should be 2d or 3d!")
         out = {}
-        num_pixels = N * H * W
-
         out["bpp_loss"] = sum(
             (torch.log(likelihoods).sum() / (-math.log(2) * num_pixels))
             for likelihoods in output["likelihoods"].values()
