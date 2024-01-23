@@ -272,7 +272,7 @@ cfgs = {
 
 
 def _load_model(
-    architecture, metric, quality, pretrained=False, progress=True, **kwargs
+    architecture, metric, quality, channel, pretrained=False, progress=True, **kwargs
 ):
     if architecture not in model_architectures:
         raise ValueError(f'Invalid architecture name "{architecture}"')
@@ -294,12 +294,14 @@ def _load_model(
         model = model_architectures[architecture].from_state_dict(state_dict)
         return model
 
-    model = model_architectures[architecture](*cfgs[architecture][quality], **kwargs)
+    model = model_architectures[architecture](
+        *cfgs[architecture][quality], channel, **kwargs
+    )
     return model
 
 
 def bmshj2018_factorized(
-    quality, metric="mse", pretrained=False, progress=True, **kwargs
+    quality, metric="mse", channel=3, pretrained=False, progress=True, **kwargs
 ):
     r"""Factorized Prior model from J. Balle, D. Minnen, S. Singh, S.J. Hwang,
     N. Johnston: `"Variational Image Compression with a Scale Hyperprior"
@@ -319,11 +321,12 @@ def bmshj2018_factorized(
         raise ValueError(f'Invalid quality "{quality}", should be between (1, 8)')
 
     return _load_model(
-        "bmshj2018-factorized", metric, quality, pretrained, progress, **kwargs
+        "bmshj2018-factorized", metric, quality, channel, pretrained, progress, **kwargs
     )
-    
+
+
 def bmshj2018_factorized_3d(
-    quality, metric="mse", pretrained=False, progress=True, **kwargs
+    quality, metric="mse", channel=3, pretrained=False, progress=True, **kwargs
 ):
     r"""Factorized Prior model from J. Balle, D. Minnen, S. Singh, S.J. Hwang,
     N. Johnston: `"Variational Image Compression with a Scale Hyperprior"
@@ -343,11 +346,18 @@ def bmshj2018_factorized_3d(
         raise ValueError(f'Invalid quality "{quality}", should be between (1, 8)')
 
     return _load_model(
-        "bmshj2018-factorized_3d", metric, quality, pretrained, progress, **kwargs
+        "bmshj2018-factorized_3d",
+        metric,
+        quality,
+        channel,
+        pretrained,
+        progress,
+        **kwargs,
     )
+
 
 def bmshj2018_factorized_relu(
-    quality, metric="mse", pretrained=False, progress=True, **kwargs
+    quality, metric="mse", channel=3, pretrained=False, progress=True, **kwargs
 ):
     r"""Factorized Prior model from J. Balle, D. Minnen, S. Singh, S.J. Hwang,
     N. Johnston: `"Variational Image Compression with a Scale Hyperprior"
@@ -367,12 +377,12 @@ def bmshj2018_factorized_relu(
         raise ValueError(f'Invalid quality "{quality}", should be between (1, 8)')
 
     return _load_model(
-        "bmshj2018-factorized", metric, quality, pretrained, progress, **kwargs
+        "bmshj2018-factorized", metric, quality, channel, pretrained, progress, **kwargs
     )
 
 
 def bmshj2018_hyperprior(
-    quality, metric="mse", pretrained=False, progress=True, **kwargs
+    quality, metric="mse", channel=3, pretrained=False, progress=True, **kwargs
 ):
     r"""Scale Hyperprior model from J. Balle, D. Minnen, S. Singh, S.J. Hwang,
     N. Johnston: `"Variational Image Compression with a Scale Hyperprior"
@@ -392,11 +402,13 @@ def bmshj2018_hyperprior(
         raise ValueError(f'Invalid quality "{quality}", should be between (1, 8)')
 
     return _load_model(
-        "bmshj2018-hyperprior", metric, quality, pretrained, progress, **kwargs
+        "bmshj2018-hyperprior", metric, quality, channel, pretrained, progress, **kwargs
     )
 
 
-def mbt2018_mean(quality, metric="mse", pretrained=False, progress=True, **kwargs):
+def mbt2018_mean(
+    quality, metric="mse", channel=3, pretrained=False, progress=True, **kwargs
+):
     r"""Scale Hyperprior with non zero-mean Gaussian conditionals from D.
     Minnen, J. Balle, G.D. Toderici: `"Joint Autoregressive and Hierarchical
     Priors for Learned Image Compression" <https://arxiv.org/abs/1809.02736>`_,
@@ -414,10 +426,14 @@ def mbt2018_mean(quality, metric="mse", pretrained=False, progress=True, **kwarg
     if quality < 1 or quality > 8:
         raise ValueError(f'Invalid quality "{quality}", should be between (1, 8)')
 
-    return _load_model("mbt2018-mean", metric, quality, pretrained, progress, **kwargs)
+    return _load_model(
+        "mbt2018-mean", metric, quality, channel, pretrained, progress, **kwargs
+    )
 
 
-def mbt2018(quality, metric="mse", pretrained=False, progress=True, **kwargs):
+def mbt2018(
+    quality, metric="mse", channel=3, pretrained=False, progress=True, **kwargs
+):
     r"""Joint Autoregressive Hierarchical Priors model from D.
     Minnen, J. Balle, G.D. Toderici: `"Joint Autoregressive and Hierarchical
     Priors for Learned Image Compression" <https://arxiv.org/abs/1809.02736>`_,
@@ -438,7 +454,9 @@ def mbt2018(quality, metric="mse", pretrained=False, progress=True, **kwargs):
     return _load_model("mbt2018", metric, quality, pretrained, progress, **kwargs)
 
 
-def cheng2020_anchor(quality, metric="mse", pretrained=False, progress=True, **kwargs):
+def cheng2020_anchor(
+    quality, metric="mse", channel=3, pretrained=False, progress=True, **kwargs
+):
     r"""Anchor model variant from `"Learned Image Compression with
     Discretized Gaussian Mixture Likelihoods and Attention Modules"
     <https://arxiv.org/abs/2001.01568>`_, by Zhengxue Cheng, Heming Sun, Masaru
@@ -457,11 +475,13 @@ def cheng2020_anchor(quality, metric="mse", pretrained=False, progress=True, **k
         raise ValueError(f'Invalid quality "{quality}", should be between (1, 6)')
 
     return _load_model(
-        "cheng2020-anchor", metric, quality, pretrained, progress, **kwargs
+        "cheng2020-anchor", metric, quality, channel, pretrained, progress, **kwargs
     )
 
 
-def cheng2020_attn(quality, metric="mse", pretrained=False, progress=True, **kwargs):
+def cheng2020_attn(
+    quality, metric="mse", channel=3, pretrained=False, progress=True, **kwargs
+):
     r"""Self-attention model variant from `"Learned Image Compression with
     Discretized Gaussian Mixture Likelihoods and Attention Modules"
     <https://arxiv.org/abs/2001.01568>`_, by Zhengxue Cheng, Heming Sun, Masaru
@@ -480,5 +500,5 @@ def cheng2020_attn(quality, metric="mse", pretrained=False, progress=True, **kwa
         raise ValueError(f'Invalid quality "{quality}", should be between (1, 6)')
 
     return _load_model(
-        "cheng2020-attn", metric, quality, pretrained, progress, **kwargs
+        "cheng2020-attn", metric, quality, channel, pretrained, progress, **kwargs
     )

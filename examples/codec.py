@@ -54,12 +54,10 @@ from monai.transforms import (
     RepeatChannel,
     ToTensor,
     Transform,
-    CastToType,
-    EnsureType,
-    ScaleIntensityRangePercentiles,
+    EnsureChannelFirst,
 )
 from aicsimageio import AICSImage
-from aicsimageio.writers import  OmeTiffWriter
+from aicsimageio.writers import OmeTiffWriter
 
 import compressai
 
@@ -96,6 +94,7 @@ class CodecInfo(NamedTuple):
     net: Dict
     device: str
 
+
 class Normalize(Transform):
     def __init__(self):
         super().__init__()
@@ -104,6 +103,7 @@ class Normalize(Transform):
         # Rescale unint16 values to [0,1]
         result = img / 65535
         return result
+
 
 def BoolConvert(a):
     b = [False, True]
@@ -140,7 +140,7 @@ def img2torch(img: Image.Image) -> torch.Tensor:
 #     return (x.clamp_(0, 1).squeeze())
 
 
-def torch2img(x: torch.Tensor): 
+def torch2img(x: torch.Tensor):
     # Convert  tensor to numpy array and rescale to uint16
     np_array = x.clamp_(0, 1).squeeze().cpu().numpy()
     return (np_array * (2**16 - 1)).astype(np.uint16)
@@ -285,7 +285,7 @@ def write_frame(fout: IO[bytes], frame: Frame, bitdepth: np.uint = 8):
         convert_output(plane, bitdepth).tofile(fout)
 
 
-def encode_image(input, codec: CodecInfo, output):
+def encode_image(input, channel, codec: CodecInfo, output):
     if Path(input).suffix == ".yuv":
         # encode first frame of YUV sequence only
         org_seq = RawVideoSequence.from_file(input)
@@ -295,7 +295,14 @@ def encode_image(input, codec: CodecInfo, output):
             raise NotImplementedError(f"Unsupported video format: {org_seq.format}")
         x = convert_yuv420_rgb(org_seq[0], codec.device, max_val)
     else:
-        transform = Compose([LoadImage(image_only=True),AddChannel(),RepeatChannel(repeats = 3),Normalize()])
+        transform = Compose(
+            [
+                LoadImage(image_only=True),
+                EnsureChannelFirst(channel_dim='no_channel'),
+                RepeatChannel(repeats=channel),
+                Normalize(),
+            ]
+        )
         img = transform(input).unsqueeze(0)
         x = img.to(codec.device)
         bitdepth = 8
@@ -397,8 +404,19 @@ def encode_video(input, codec: CodecInfo, output):
 
     return {"bpp": bpp, "avg_frm_enc_time": np.mean(avg_frame_enc_time)}
 
-    
-def _encode(input, num_of_frames, model, metric, quality, coder, device, output, checkpoint):
+
+def _encode(
+    input,
+    num_of_frames,
+    model,
+    metric,
+    quality,
+    channel,
+    coder,
+    device,
+    output,
+    checkpoint,
+):
     encode_func = {
         CodecType.IMAGE_CODEC: encode_image,
         CodecType.VIDEO_CODEC: encode_video,
@@ -411,14 +429,25 @@ def _encode(input, num_of_frames, model, metric, quality, coder, device, output,
     model_info = models[model]
     if checkpoint:
         try:
-            state_dict = torch.load(checkpoint)['state_dict']
+            state_dict = torch.load(checkpoint)["state_dict"]
             state_dict = load_pretrained(state_dict)
-            net = model_info(quality=quality, metric=metric, pretrained=False).from_state_dict(state_dict).to(device).eval()
+            net = (
+                model_info(
+                    quality=quality, metric=metric, channel=channel, pretrained=False
+                )
+                .from_state_dict(state_dict)
+                .to(device)
+                .eval()
+            )
         except:
-            print('the path or the config is wrong!')
+            print("the path or the config is wrong!")
             pass
     else:
-        net = model_info(quality=quality, metric=metric, pretrained=True).to(device).eval()
+        net = (
+            model_info(quality=quality, metric=metric, channel=channel, pretrained=True)
+            .to(device)
+            .eval()
+        )
     codec_type = (
         CodecType.IMAGE_CODEC if model in image_models else CodecType.VIDEO_CODEC
     )
@@ -430,7 +459,7 @@ def _encode(input, num_of_frames, model, metric, quality, coder, device, output,
         raise FileNotFoundError(f"{input} does not exist")
 
     codec_info = CodecInfo(codec_header_info, None, None, net, device)
-    out = encode_func[codec_type](input, codec_info, output)
+    out = encode_func[codec_type](input, channel, codec_info, output)
 
     enc_time = time.time() - enc_start
 
@@ -460,7 +489,7 @@ def decode_image(f, codec: CodecInfo, output):
                 write_frame(fout, rec, codec.original_bitdepth)
         else:
             # save_img(img)
-            OmeTiffWriter.save(img[0].transpose(1,0), output, dim_order="YX")
+            OmeTiffWriter.save(img[0].transpose(1, 0), output, dim_order="YX")
 
     return {"img": img}
 
@@ -509,7 +538,7 @@ def decode_video(f, codec: CodecInfo, output):
     return {"img": img, "avg_frm_dec_time": np.mean(avg_frame_dec_time)}
 
 
-def _decode(inputpath, coder, show, device, output=None):
+def _decode(inputpath, channel, coder, show, device, output=None):
     decode_func = {
         CodecType.IMAGE_CODEC: decode_image,
         CodecType.VIDEO_CODEC: decode_video,
@@ -527,7 +556,7 @@ def _decode(inputpath, coder, show, device, output=None):
         start = time.time()
         model_info = models[model]
         net = (
-            model_info(quality=quality, metric=metric, pretrained=True)
+            model_info(quality=quality, metric=metric, channel=channel, pretrained=True)
             .to(device)
             .eval()
         )
@@ -546,16 +575,16 @@ def _decode(inputpath, coder, show, device, output=None):
 
     if show:
         # For video, only the last frame is shown
-        show_image(out["img"])
+        show_image(out["img"], channel)
 
 
-def show_image(img: Image.Image):
+def show_image(img: Image.Image, channel):
     from matplotlib import pyplot as plt
 
     fig, ax = plt.subplots()
     ax.axis("off")
     ax.title.set_text("Decoded image")
-    ax.imshow(img)
+    ax.imshow(img, cmap="gray" if channel == 1 else None)
     fig.tight_layout()
     plt.show()
 
@@ -565,7 +594,7 @@ def encode(argv):
     parser.add_argument(
         "--checkpoint",
         type=str,
-        default = None,
+        default=None,
         help="path to checkpoint. If not specified, will load the pretrained model on RGB.",
     )
     parser.add_argument(
@@ -602,7 +631,13 @@ def encode(argv):
         help="Quality setting (default: %(default)s)",
     )
     parser.add_argument(
-        "-c",
+        "--channel",
+        choices=[1, 3],
+        type=int,
+        default=3,
+        help="Channel of the image (default: %(default)s)",
+    )
+    parser.add_argument(
         "--coder",
         choices=compressai.available_entropy_coders(),
         default=compressai.available_entropy_coders()[0],
@@ -621,10 +656,11 @@ def encode(argv):
         args.model,
         args.metric,
         args.quality,
+        args.channel,
         args.coder,
         device,
         args.output,
-        args.checkpoint
+        args.checkpoint,
     )
 
 
@@ -632,7 +668,6 @@ def decode(argv):
     parser = argparse.ArgumentParser(description="Decode bit-stream to image/video")
     parser.add_argument("input", type=str)
     parser.add_argument(
-        "-c",
         "--coder",
         choices=compressai.available_entropy_coders(),
         default=compressai.available_entropy_coders()[0],
@@ -640,10 +675,17 @@ def decode(argv):
     )
     parser.add_argument("--show", action="store_true")
     parser.add_argument("-o", "--output", help="Output path")
+    parser.add_argument(
+        "--channel",
+        choices=[1, 3],
+        type=int,
+        default=3,
+        help="Channel of the image (default: %(default)s)",
+    )
     parser.add_argument("--cuda", action="store_true", help="Use cuda")
     args = parser.parse_args(argv)
     device = "cuda" if args.cuda and torch.cuda.is_available() else "cpu"
-    _decode(args.input, args.coder, args.show, device, args.output)
+    _decode(args.input, args.channel, args.coder, args.show, device, args.output)
 
 
 def parse_args(argv):

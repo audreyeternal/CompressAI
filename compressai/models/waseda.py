@@ -56,11 +56,11 @@ class Cheng2020Anchor(JointAutoregressiveHierarchicalPriors):
         N (int): Number of channels
     """
 
-    def __init__(self, N=192, **kwargs):
-        super().__init__(N=N, M=N, **kwargs)
+    def __init__(self, N=192, channel=3, **kwargs):
+        super().__init__(N=N, M=N, channel=channel, **kwargs)
 
         self.g_a = nn.Sequential(
-            ResidualBlockWithStride(3, N, stride=2),
+            ResidualBlockWithStride(channel, N, stride=2),
             ResidualBlock(N, N),
             ResidualBlockWithStride(N, N, stride=2),
             ResidualBlock(N, N),
@@ -101,14 +101,15 @@ class Cheng2020Anchor(JointAutoregressiveHierarchicalPriors):
             ResidualBlock(N, N),
             ResidualBlockUpsample(N, N, 2),
             ResidualBlock(N, N),
-            subpel_conv3x3(N, 3, 2),
+            subpel_conv3x3(N, channel, 2),
         )
 
     @classmethod
     def from_state_dict(cls, state_dict):
         """Return a new model instance from `state_dict`."""
         N = state_dict["g_a.0.conv1.weight"].size(0)
-        net = cls(N)
+        channel = state_dict["g_a.0.conv1.weight"].size(1)
+        net = cls(N, channel)
         net.load_state_dict(state_dict)
         return net
 
@@ -127,11 +128,11 @@ class Cheng2020Attention(Cheng2020Anchor):
         N (int): Number of channels
     """
 
-    def __init__(self, N=192, **kwargs):
-        super().__init__(N=N, **kwargs)
+    def __init__(self, N=192, channel=3, **kwargs):
+        super().__init__(N=N, channel=channel, **kwargs)
 
         self.g_a = nn.Sequential(
-            ResidualBlockWithStride(3, N, stride=2),
+            ResidualBlockWithStride(channel, N, stride=2),
             ResidualBlock(N, N),
             ResidualBlockWithStride(N, N, stride=2),
             AttentionBlock(N),
@@ -152,5 +153,5 @@ class Cheng2020Attention(Cheng2020Anchor):
             ResidualBlock(N, N),
             ResidualBlockUpsample(N, N, 2),
             ResidualBlock(N, N),
-            subpel_conv3x3(N, 3, 2),
+            subpel_conv3x3(N, channel, 2),
         )

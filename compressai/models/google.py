@@ -99,13 +99,13 @@ class FactorizedPrior(CompressionModel):
             encoder and last layer of the hyperprior decoder)
     """
 
-    def __init__(self, N, M, **kwargs):
+    def __init__(self, N, M, channel, **kwargs):
         super().__init__(**kwargs)
 
         self.entropy_bottleneck = EntropyBottleneck(M)
 
         self.g_a = nn.Sequential(
-            conv(1, N),
+            conv(channel, N),
             GDN(N),
             conv(N, N),
             GDN(N),
@@ -121,11 +121,12 @@ class FactorizedPrior(CompressionModel):
             GDN(N, inverse=True),
             deconv(N, N),
             GDN(N, inverse=True),
-            deconv(N, 1),
+            deconv(N, channel),
         )
 
         self.N = N
         self.M = M
+        self.channel = channel
 
     @property
     def downsampling_factor(self) -> int:
@@ -148,7 +149,8 @@ class FactorizedPrior(CompressionModel):
         """Return a new model instance from `state_dict`."""
         N = state_dict["g_a.0.weight"].size(0)
         M = state_dict["g_a.6.weight"].size(0)
-        net = cls(N, M)
+        channel = state_dict["g_a.0.weight"].size(1)
+        net = cls(N, M, channel)
         net.load_state_dict(state_dict)
         return net
 
@@ -163,16 +165,16 @@ class FactorizedPrior(CompressionModel):
         x_hat = self.g_s(y_hat).clamp_(0, 1)
         return {"x_hat": x_hat}
 
+
 @register_model("bmshj2018-factorized_3d")
 class FactorizedPrior3D(CompressionModel):
-    
-    def __init__(self, N, M, **kwargs):
+    def __init__(self, N, M, channel, **kwargs):
         super().__init__(**kwargs)
 
         self.entropy_bottleneck = EntropyBottleneck(M)
 
         self.g_a = nn.Sequential(
-            conv3d(1, N),
+            conv3d(channel, N),
             GDN3d(N),
             conv3d(N, N),
             GDN3d(N),
@@ -188,11 +190,12 @@ class FactorizedPrior3D(CompressionModel):
             GDN3d(N, inverse=True),
             deconv3d(N, N),
             GDN3d(N, inverse=True),
-            deconv3d(N, 1),
+            deconv3d(N, channel),
         )
 
         self.N = N
         self.M = M
+        self.channel = channel
 
     @property
     def downsampling_factor(self) -> int:
@@ -215,7 +218,8 @@ class FactorizedPrior3D(CompressionModel):
         """Return a new model instance from `state_dict`."""
         N = state_dict["g_a.0.weight"].size(0)
         M = state_dict["g_a.6.weight"].size(0)
-        net = cls(N, M)
+        channel = state_dict["g_a.0.weight"].size(1)
+        net = cls(N, M, channel)
         net.load_state_dict(state_dict)
         return net
 
@@ -229,6 +233,7 @@ class FactorizedPrior3D(CompressionModel):
         y_hat = self.entropy_bottleneck.decompress(strings[0], shape)
         x_hat = self.g_s(y_hat).clamp_(0, 1)
         return {"x_hat": x_hat}
+
 
 @register_model("bmshj2018-factorized-relu")
 class FactorizedPriorReLU(FactorizedPrior):
@@ -244,11 +249,11 @@ class FactorizedPriorReLU(FactorizedPrior):
             encoder and last layer of the hyperprior decoder)
     """
 
-    def __init__(self, N, M, **kwargs):
-        super().__init__(N=N, M=M, **kwargs)
+    def __init__(self, N, M, channel, **kwargs):
+        super().__init__(N=N, M=M, channel=channel, **kwargs)
 
         self.g_a = nn.Sequential(
-            conv(3, N),
+            conv(channel, N),
             nn.ReLU(inplace=True),
             conv(N, N),
             nn.ReLU(inplace=True),
@@ -264,7 +269,7 @@ class FactorizedPriorReLU(FactorizedPrior):
             nn.ReLU(inplace=True),
             deconv(N, N),
             nn.ReLU(inplace=True),
-            deconv(N, 3),
+            deconv(N, channel),
         )
 
 
@@ -306,13 +311,13 @@ class ScaleHyperprior(CompressionModel):
             encoder and last layer of the hyperprior decoder)
     """
 
-    def __init__(self, N, M, **kwargs):
+    def __init__(self, N, M, channel, **kwargs):
         super().__init__(**kwargs)
 
         self.entropy_bottleneck = EntropyBottleneck(N)
 
         self.g_a = nn.Sequential(
-            conv(3, N),
+            conv(channel, N),
             GDN(N),
             conv(N, N),
             GDN(N),
@@ -328,7 +333,7 @@ class ScaleHyperprior(CompressionModel):
             GDN(N, inverse=True),
             deconv(N, N),
             GDN(N, inverse=True),
-            deconv(N, 3),
+            deconv(N, channel),
         )
 
         self.h_a = nn.Sequential(
@@ -374,7 +379,8 @@ class ScaleHyperprior(CompressionModel):
         """Return a new model instance from `state_dict`."""
         N = state_dict["g_a.0.weight"].size(0)
         M = state_dict["g_a.6.weight"].size(0)
-        net = cls(N, M)
+        channel = state_dict["g_a.0.weight"].size(1)
+        net = cls(N, M, channel)
         net.load_state_dict(state_dict)
         return net
 
@@ -438,8 +444,8 @@ class MeanScaleHyperprior(ScaleHyperprior):
             encoder and last layer of the hyperprior decoder)
     """
 
-    def __init__(self, N, M, **kwargs):
-        super().__init__(N=N, M=M, **kwargs)
+    def __init__(self, N, M, channel, **kwargs):
+        super().__init__(N=N, M=M, channel=channel, **kwargs)
 
         self.h_a = nn.Sequential(
             conv(M, N, stride=1, kernel_size=3),
@@ -539,11 +545,11 @@ class JointAutoregressiveHierarchicalPriors(MeanScaleHyperprior):
             encoder and last layer of the hyperprior decoder)
     """
 
-    def __init__(self, N=192, M=192, **kwargs):
-        super().__init__(N=N, M=M, **kwargs)
+    def __init__(self, N=192, M=192, channel=3, **kwargs):
+        super().__init__(N=N, M=M, channel=channel, **kwargs)
 
         self.g_a = nn.Sequential(
-            conv(3, N, kernel_size=5, stride=2),
+            conv(channel, N, kernel_size=5, stride=2),
             GDN(N),
             conv(N, N, kernel_size=5, stride=2),
             GDN(N),
@@ -559,7 +565,7 @@ class JointAutoregressiveHierarchicalPriors(MeanScaleHyperprior):
             GDN(N, inverse=True),
             deconv(N, N, kernel_size=5, stride=2),
             GDN(N, inverse=True),
-            deconv(N, 3, kernel_size=5, stride=2),
+            deconv(N, channel, kernel_size=5, stride=2),
         )
 
         self.h_a = nn.Sequential(
@@ -625,7 +631,8 @@ class JointAutoregressiveHierarchicalPriors(MeanScaleHyperprior):
         """Return a new model instance from `state_dict`."""
         N = state_dict["g_a.0.weight"].size(0)
         M = state_dict["g_a.6.weight"].size(0)
-        net = cls(N, M)
+        channel = state_dict["g_a.0.weight"].size(1)
+        net = cls(N, M, channel)
         net.load_state_dict(state_dict)
         return net
 
